@@ -54,3 +54,6 @@ Rplots.pdf
 
 # ---- sort scratch space (run_chrombpnet.sh bias-peaks) ----
 .sorttmp/
+
+# ---- session working notes (local only, not for the repo) ----
+20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].txt
