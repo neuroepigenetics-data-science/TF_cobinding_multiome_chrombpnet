@@ -139,6 +139,18 @@ die()  { echo "ERROR: $*" >&2; exit 1; }
 # Safe line count: a bare `wc -l < missing` is a shell redirection error that
 # `|| echo 0` cannot catch, which breaks logging under DRY_RUN.
 nlines() { if [ -s "$1" ]; then wc -l < "$1" | tr -d ' '; else echo 0; fi; }
+
+# --- bgzipped fragment support ----------------------------------------------
+# Fragment BEDs are stored bgzipped (~28 GB vs ~125 GB raw). ChromBPNet accepts
+# bgzipped fragments for -ifrag, so training needs no change beyond resolving
+# the path. `frag_path` prefers .gz and falls back to plain, so both layouts
+# work; without it, the `[ -s "$frag" ]` guard in stage_train would silently
+# skip every cell type once the BEDs were compressed.
+frag_path() { if [ -s "$1.gz" ]; then echo "$1.gz"; elif [ -s "$1" ]; then echo "$1"; else echo ""; fi; }
+frag_cat()  { case "$1" in *.gz) bgzip -dc "$1";; *) cat "$1";; esac; }
+# Same decision as frag_cat, but emitted as a command string for `bash -c`
+# pipelines (needed so DRY_RUN can print the whole pipeline verbatim).
+frag_cat_cmd() { case "$1" in *.gz) echo "bgzip -dc '$1'";; *) echo "cat '$1'";; esac; }
 run()  {
   if [ "$DRY_RUN" = "1" ]; then echo "  [dry-run] $*"; else "$@"; fi
 }
@@ -189,16 +201,19 @@ PY
 stage_bias_peaks() {
   need_tool "$MACS2" macs2 MACS2
   need_tool "$BEDTOOLS" bedtools BEDTOOLS
-  [ -s "$BIAS_FRAG_RAW" ] || die "missing $BIAS_FRAG_RAW (run pipeline/R/prepare_ml_input.R)"
+  local raw; raw=$(frag_path "$BIAS_FRAG_RAW")
+  [ -n "$raw" ] || die "missing $BIAS_FRAG_RAW[.gz] (run pipeline/R/prepare_ml_input.R)"
   mkdir -p "$BIAS_PEAK_DIR" "$SORT_TMP"
 
   if [ -s "$BIAS_FRAG_GZ" ] && [ -s "${BIAS_FRAG_GZ}.tbi" ]; then
     log "bias fragments already sorted+indexed: $BIAS_FRAG_GZ"
   else
     # 6.0 GB / ~133M fragments. -T must point somewhere roomy; /tmp is not.
-    log "sorting bias fragments (tmp=$SORT_TMP) ..."
-    run bash -c "LC_ALL=C sort -k1,1V -k2,2n -T '$SORT_TMP' --parallel='$THREADS' \
-                   '$BIAS_FRAG_RAW' | bgzip -@ '$THREADS' > '$BIAS_FRAG_GZ'"
+    # Streamed through frag_cat so a bgzipped source works: `sort` cannot read
+    # .gz itself, and handing it one silently sorts the compressed bytes.
+    log "sorting bias fragments from $raw (tmp=$SORT_TMP) ..."
+    run bash -c "$(frag_cat_cmd "$raw") | LC_ALL=C sort -k1,1V -k2,2n -T '$SORT_TMP' \
+                   --parallel='$THREADS' | bgzip -@ '$THREADS' > '$BIAS_FRAG_GZ'"
     log "tabix ..."
     run tabix -f -p bed "$BIAS_FRAG_GZ"
   fi
@@ -310,11 +325,14 @@ stage_train() {
   [ -s "$bias_model" ] || die "missing $bias_model (stage: bias-train)"
 
   for CT in "${CELLTYPES[@]}"; do
-    local frag="$FRAG_DIR/${CT}_chr.bed"
+    # frag_path so a bgzipped fragment file resolves; ChromBPNet reads .gz for
+    # -ifrag. Without this the guard below would skip every cell type silently.
+    local frag; frag=$(frag_path "$FRAG_DIR/${CT}_chr.bed")
     local pk="$FILT_DIR/${CT}_peaks_no_blacklist_chr.bed"
     local neg="$NEG_DIR/${CT}_nonpeaks_negatives.bed"
     local out="$MODEL_DIR/${CT}"
-    for f in "$frag" "$pk" "$neg"; do
+    [ -n "$frag" ] || { log "  $CT: missing $FRAG_DIR/${CT}_chr.bed[.gz] -- skipping"; continue; }
+    for f in "$pk" "$neg"; do
       [ -s "$f" ] || { log "  $CT: missing $f -- skipping"; continue 2; }
     done
     if [ -s "$out/models/chrombpnet_nobias.h5" ]; then

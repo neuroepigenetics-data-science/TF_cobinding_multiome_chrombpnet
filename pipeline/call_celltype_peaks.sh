@@ -99,6 +99,16 @@ if [ "$#" -gt 0 ]; then CELLTYPES=("$@"); fi
 
 log() { echo "$(date '+%H:%M:%S') | $*"; }
 
+# --- bgzipped fragment support ----------------------------------------------
+# The fragment BEDs are ~125 GB raw and are stored bgzipped (~28 GB). Both forms
+# are accepted so the pipeline works either way: `frag_path` prefers the .gz,
+# `frag_cat` streams whichever exists, and `frag_lines` counts without ever
+# materialising the plain text. MACS2 reads .gz natively, so only the grep and
+# the line counts needed changing.
+frag_path()  { if [ -s "$1.gz" ]; then echo "$1.gz"; elif [ -s "$1" ]; then echo "$1"; else echo ""; fi; }
+frag_cat()   { case "$1" in *.gz) bgzip -dc "$1";; *) cat "$1";; esac; }
+frag_lines() { frag_cat "$1" | wc -l | tr -d ' '; }
+
 for f in "$MACS2" "$BEDTOOLS" "$CHROM_SIZES" "$BLACKLIST"; do
   [ -e "$f" ] || { echo "missing required file: $f" >&2; exit 1; }
 done
@@ -114,17 +124,20 @@ log "blacklist regions: $(wc -l < "$SLOPPED")"
 
 for CT in "${CELLTYPES[@]}"; do
   log "================ $CT ================"
-  FRAG="$FRAG_DIR/${CT}.bed"
-  CHRBED="$FRAG_DIR/${CT}_chr.bed"
-  [ -s "$FRAG" ] || { log "  MISSING $FRAG -- skipping"; continue; }
+  FRAG=$(frag_path "$FRAG_DIR/${CT}.bed")
+  CHRBED=$(frag_path "$FRAG_DIR/${CT}_chr.bed")
+  [ -n "$FRAG" ] || { log "  MISSING $FRAG_DIR/${CT}.bed[.gz] -- skipping"; continue; }
 
   # 1. canonical contigs only
-  if [ -s "$CHRBED" ]; then
+  if [ -n "$CHRBED" ]; then
     log "  1. $CHRBED exists, skipping filter"
   else
-    log "  1. filtering to ^chr ..."
-    grep '^chr' "$FRAG" > "$CHRBED"
-    log "     $(wc -l < "$FRAG") -> $(wc -l < "$CHRBED") fragments"
+    # Write bgzipped to match how the fragments are stored. grep on a plain
+    # .bed still works; frag_cat handles either input.
+    CHRBED="$FRAG_DIR/${CT}_chr.bed.gz"
+    log "  1. filtering to ^chr -> $CHRBED ..."
+    frag_cat "$FRAG" | grep '^chr' | bgzip -@ "${BGZIP_THREADS:-8}" > "$CHRBED"
+    log "     $(frag_lines "$FRAG") -> $(frag_lines "$CHRBED") fragments"
   fi
 
   # 2. MACS2
