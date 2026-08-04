@@ -1,0 +1,23 @@
+# Site-wide R profile for the `zamboni-r` conda env.
+#
+# Fix: GenomeInfoDb 1.38.1 (Bioc 3.18) hard-codes the UCSC download host as
+# https://hgdownload.cse.ucsc.edu/goldenPath in its .onLoad(). UCSC retired that
+# hostname and it now serves a certificate that does not match, so any call that
+# reaches UCSC -- notably `seqlevelsStyle(x) <- "UCSC"` in code/source.R, which
+# fetches mm10 chromInfo.txt.gz -- fails with:
+#     cannot open URL '.../mm10/database/chromInfo.txt.gz'
+#
+# The working host is hgdownload.soe.ucsc.edu (same content, valid cert).
+# Setting options(UCSC.goldenPath.url=) before loading is not enough: .onLoad
+# overwrites it unconditionally. So repoint it *after* the namespace loads.
+#
+# Newer GenomeInfoDb versions fix the host upstream, but those require a newer
+# Bioconductor than R 4.3.3 in this env supports -- hence this shim.
+local({
+  setHook(
+    packageEvent("GenomeInfoDb", "onLoad"),
+    function(...) {
+      options(UCSC.goldenPath.url = "https://hgdownload.soe.ucsc.edu/goldenPath")
+    }
+  )
+})

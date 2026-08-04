@@ -1,0 +1,13 @@
+# Command-line tools, kept in a SEPARATE env from the R stack on purpose:
+# macs2 needs its own Python, and mixing it into the R env is what forced a
+# separate env on the host too.
+name: tools
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.10
+  - macs2=2.2.9.1
+  - bedtools=2.31.1
+  - samtools
+  - htslib          # bgzip + tabix

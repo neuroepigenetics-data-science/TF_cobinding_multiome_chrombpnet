@@ -1,0 +1,204 @@
+================================================================================
+WORK SUMMARY — 2026-07-29 (evening) + 2026-07-30
+Zamboni et al. multiome: pivoted to Track A, built ALL ChromBPNet inputs,
+containerised the whole thing.
+================================================================================
+
+HEADLINE
+--------
+**Every local (non-GPU) step of the ChromBPNet path is DONE and reproducible.**
+We stopped a full ArchR run that was not on the critical path, ran Track A
+end-to-end instead, and wrapped it in a Docker image that reproduces the outputs
+byte-for-byte. What remains needs a GPU and nothing else.
+
+THE BIG COURSE CORRECTION
+-------------------------
+The session began by launching the full 21-sample ArchR run (Track B), following
+pipeline/README.md's "Where to resume". That was WRONG for our goal. Gorkem
+challenged it; RUNNING_LOCALLY.md already said so explicitly:
+
+    "ArchR — NOT on our critical path ... its output is already baked into the
+     object we received."
+
+Why ArchR is not needed for ChromBPNet:
+  - the ArchR peak set is already in multiome_obj_clean_240326.rds (`peaks`
+    assay, 466,834 peaks);
+  - run_chrombpnet.sh re-calls peaks with MACS2 from the per-cell-type fragment
+    BEDs anyway, so ArchR's consensus set is never a training input;
+  - ChromBPNet needs only: cell-type-labelled barcodes + fragments -> SplitFragments.
+
+The run was killed ~6 min in (cost nothing). Track A then took ~30 min for what
+ArchR would not have delivered in many hours.
+=> Both READMEs now warn about this so it cannot repeat. Track B still matters
+   later, for OUR OWN data (we cannot inherit Zamboni's peak set or annotations).
+
+WHAT WAS BUILT (all verified)
+-----------------------------
+New config-driven scripts (pipeline/):
+  R/differential_analysis_injury.R  step 2  — injury DARs, peaks + RNA
+  R/prepare_ml_input.R              step 3  — fragment BEDs via SplitFragments
+  R/prepare_ml_dars.R               step 3b — DAR BEDs
+  call_celltype_peaks.sh            step 1  — MACS2 peaks, blacklist, DAR intersect
+
+Outputs on disk (ML/ is 125 GB; 519 GB free):
+  markers/                        2 rds  (peaks: ~448,600 rows; RNA: 81,161 DEGs)
+  ML/celltype_fragments/          21 bed (10 celltype + bias + 10 _chr)
+  ML/celltype_fragments_injury/   20 bed
+  ML/celltype_dars/               10 bed (226,614 unique regions)
+  ML/macs2_celltype_peaks/        10 narrowPeak
+  ML/filtered_peaks/              10 blacklist-filtered
+  ML/dars_intersect_peaks/        10 bed (190,742 regions) <- ChromBPNet contribs input
+  meta/mm10.fa (2.6 GB) + .fai    md5-verified against UCSC
+
+PEAK CALLING RESULTS (949,377,085 fragments, 24 min, 0 errors)
+-------------------------------------------------------------
+celltype           cells   fragments     peaks  post-BL    DARs  kept   %
+Ependymal           5625   101342801    141893   139878   86999  83906  96
+Microglia          17341   283601546    115626   113297   42940  38309  89
+OPCs                1196    18528652     91242    89870   25501  22671  89
+Astrocytes          6625    82690696    125549   123675   19325  18027  93
+Endothelial          439     1808474     48234    47214   30740   8546  28  <-- outlier
+Oligodendrocytes   20816   219582673    130648   128578    7037   6716  95
+Neurons_V           5114   118284724    166693   164375    6161   5646  92
+Perivascular         673     3178666     87564    86058    4481   3648  81
+Neurons_D           4281    68440614    138612   136536    3155   3000  95
+Macrophages         4962    51918239     86564    84729     275    273  99
+
+8/10 retain 89-99%: DARs called on the POOLED ArchR consensus set independently
+land inside peaks called PER CELL TYPE from raw fragments. Two methods agreeing
+is good evidence the annotations and DARs are sound.
+
+*** DATA CAVEATS — carry these into interpretation ***
+  - Endothelial 28% retention: 2nd-most DARs (30,740) from the FEWEST cells
+    (439), including 9-cell 3dpi and 30-cell 7dpi contrasts. Underpowered
+    comparisons manufacture DARs that don't sit in real peaks; the intersect
+    removed ~22,000. Perivascular is the control: nearly as few cells (673) but
+    only 4,481 DARs and 81% retention -> it's the thin CONTRASTS, not small
+    cell count. Treat Endothelial motifs cautiously.
+  - Macrophages 273 regions: uninjured group is only 22 cells. Regions are
+    trustworthy (99% in peaks) but FAR too few for MoDISco seqlet clustering.
+    Biologically expected (macrophages infiltrate after injury).
+  - Peak counts do NOT track depth: Neurons_V yields most peaks (166,693) from
+    118M fragments; Microglia fewer (115,626) from 283M.
+  - Ependymal is both richest and most validated -> best MoDISco candidate,
+    and it is the reactive population central to the paper. RNA agrees
+    (Ependymal highest at 13,828 DEGs).
+
+BUGS FOUND IN THE PUBLISHED CODE (all documented in script headers)
+------------------------------------------------------------------
+1. prepare_ml_input.R:32  `ifelse(condition == "Uninj", ...)` never matches —
+   this object's levels are 1dpi/28dpi/3dpi/7dpi/**U**. As written it labels all
+   15,578 uninjured cells as injured. We use the object's precomputed
+   cluster_ids_injury and VERIFY it (0/67,072 mismatches — the object's labels
+   are fine; only the script is broken).
+2. DAR BEDs duplicated across timepoints. 48% of Ependymal and Microglia rows
+   were duplicates; the original emits each 2-4x, so MoDISco would double-count
+   seqlets in persistently-open regions and inflate those motifs. Now collapsed
+   (ml.dars_dedupe: true; set false for published behaviour).
+3. differential_analysis.R relies on the object's saved active ident
+   (`Idents(multiome) %>% unique()`) — silently changes the whole analysis.
+   Now set explicitly from config.
+4. run_chrombpnet.sh references mm10.chrom.sizes AND mm10.chr.sizes (only the
+   latter exists); has a stray `A` in `-n negatives/A${i}_nonpeaks_negatives.bed`;
+   writes <ct>_chr.bed to celltype_fragments_multiome_only/ but READS it from
+   ML/celltype_fragments/. NOT yet fixed — do it before running on the GPU box.
+5. The DAR x peak intersect run_chrombpnet.sh expects
+   (dars_intersect_peaks/<ct>_intersect_dars.bed) exists in NEITHER published
+   script. We produce it (call_celltype_peaks.sh step 4, `bedtools intersect -u`
+   keeping whole 500bp DAR regions, since ChromBPNet wants fixed-width input).
+
+ENVIRONMENT / TOOLING GOTCHAS HIT
+---------------------------------
+- Signac stores an md5 PAIR (fragment file + .tbi). ValidateHash() requires BOTH.
+  Zamboni never shipped her .tbi files (ours are tabix-regenerated), so
+  UpdatePath() fails, AND `Fragments(assay)<-` fails again inside AddFragments().
+  Fix: verify the FRAGMENT file against her stored hash[1] (all 21 matched),
+  then re-stamp the hash pair with our local files.
+- FindMarkers dies with `vector memory exhausted` on the largest cell type.
+  Object is 18.8 GB loaded (4 assays, 5 reductions, 4 67k x 67k graphs).
+  DietSeurat() to one assay -> 11.5 GB (peaks) / 3.8 GB (RNA). Use
+  `--only peaks` / `--only rna`, never `both`.
+- DietSeurat() refuses to drop the DefaultAssay -> `--only rna` failed where
+  `--only peaks` passed by luck. Repoint DefaultAssay before slimming.
+- macs2/bedtools were hardcoded to /Users/gorkemdurmaz/... paths. Now
+  env var -> pipeline/tools.local.env (gitignored, host-specific) -> PATH, and
+  the resolved path is checked to be EXECUTABLE (not merely non-empty).
+- macOS bash is 3.2: empty array expansion under `set -u` errors.
+- .gitignore does not support trailing comments (the comment becomes part of the
+  pattern and silently matches nothing).
+- Use miniconda's snakemake (/Users/gorkemdurmaz/miniconda3/bin/snakemake);
+  `conda run -n zamboni-r snakemake` hits a broken system-python numpy ABI.
+- This Mac idle-sleeps and killed a run. Launch long jobs detached under
+  `caffeinate -i -m -s`, plus a `caffeinate -w <pid>` guard (the backgrounded
+  process reparents to PID 1, so the wrapper's child link is unreliable).
+
+DOCKER — REPRODUCIBILITY (built and PROVEN)
+-------------------------------------------
+  docker/{Dockerfile,environment.yml,environment-tools.yml,install_extras.R,
+          Rprofile.site,entrypoint.sh,README.md}
+  run_tracka.sh, .dockerignore
+
+Image zamboni-tracka:1.0 (5.4 GB, sha256:8f07e337..., ~5 min build).
+amd64-ONLY on purpose: bioconda's linux-aarch64 coverage is too thin to pin
+these versions (bedtools: 3 ARM builds vs 72 amd64), and one arch = identical
+bits on laptop and amd64 cluster. Runs emulated on the M4 Pro — fine, every
+step here is I/O-bound and no GPU is involved.
+
+*** PROOF, not assertion: the container regenerated all 10 DAR BEDs and the
+    combined md5 matched the host exactly (84a8b745532d6267841222c3e9c2b5a2);
+    Ependymal's 86,999 lines diff byte-for-byte identical. ***
+Container reproduced host versions exactly: Seurat 5.3.0, Signac 1.14.0,
+harmony 0.1.1, DoubletFinder 2.0.6, macs2 2.2.9.1, bedtools 2.31.1.
+
+Docker Desktop needs >= 16 GB RAM (default ~8 GB is NOT enough — the slimmed
+object alone is 11.5 GB). Gorkem raised it to 19.5 GB. Also: the credential
+helper needs /Applications/Docker.app/Contents/Resources/bin on PATH.
+
+>>> RESUME HERE TOMORROW <<<
+---------------------------
+1. (Optional, ~1 h) CLEAN-ROOM container test. Only `check` and `dars` were run
+   in the container. Point the mounts at an EMPTY output dir and run `all` to
+   prove the three long steps (dge/split/peaks) work there too. Note `split`
+   refuses a non-empty ML/celltype_fragments/ by design (SplitFragments appends
+   and would double every BED), so it must be a fresh dir.
+
+2. GPU ACCESS is now the only blocker. No HPC access yet. Options:
+     - rented cloud GPU (works today, no institutional process)
+     - Colab free T4/L4 — enough to validate ONE cell type end-to-end
+     - HPC when granted -> Singularity/Apptainer (NOT Docker; clusters disallow
+       the root daemon):
+         apptainer build chrombpnet.sif docker://kundajelab/chrombpnet:latest
+         apptainer exec --nv chrombpnet.sif chrombpnet pipeline ...
+       (`--nv` passes the GPU through)
+   NOTE: Apptainer has NO macOS build (needs Linux kernel namespaces), and a
+   Lima VM would give no GPU anyway. Docker on macOS also cannot pass through
+   the Metal GPU. So local training is not viable either way.
+   PLAN FOR DATA TRANSFER: fragment BEDs are ~43 GB (Microglia alone 12.8 GB).
+   bgzip them first — ChromBPNet accepts bgzipped fragments (the bias step
+   already passes .tsv.gz). Not yet done; a good local task.
+
+3. Still TODO locally, cheap and required anyway:
+     - sort + bgzip + tabix the bias fragment file (run_chrombpnet.sh lines
+       9-11). 6.0 GB / 133,288,009 fragments — point `sort -T` at a roomy disk.
+     - bgzip the per-cell-type fragment BEDs to shrink transfer.
+     - write a corrected, config-driven run_chrombpnet.sh (fix the 3 bugs in
+       item 4 above; exclude Macrophages from MoDISco given 273 regions).
+     - `chrombpnet prep nonpeaks` — CPU-only, needs the chrombpnet env. Can run
+       in the authors' amd64 container locally (emulated, fine for CPU work).
+
+4. Deferred, unchanged: Track B full 21-sample run (only needed to reproduce the
+   paper or to process OUR OWN data). archr.force_arrows (default false) now
+   makes the arrow step resumable, so an interruption no longer costs all 21.
+
+KEY FILES
+---------
+  pipeline/R/differential_analysis_injury.R  step 2 (use --only peaks|rna)
+  pipeline/R/prepare_ml_input.R              step 3 (--check-only to validate)
+  pipeline/R/prepare_ml_dars.R               step 3b
+  pipeline/call_celltype_peaks.sh            step 1 (+ the DAR intersect)
+  pipeline/config.yaml                       new sections: dge:, ml:
+  pipeline/tools.local.env                   host-specific, GITIGNORED
+  docker/README.md                           mounts, RAM, pins, caveats
+  run_tracka.sh                              ./run_tracka.sh check | all
+  logs/                                      every run's log, timestamped
+================================================================================

@@ -1,0 +1,52 @@
+===========================================================
+Work summary - 2026-07-10
+Project: Zamboni et al. multiome pipeline (local reproduction + adaptation)
+===========================================================
+
+GOAL
+- Understand the published pipeline, run it locally, and adapt it to
+  analyze our own multiome data.
+
+WHAT WE DID TODAY
+
+1. Mapped the whole pipeline (software / input / output per step) and
+   wrote a guide: RUNNING_LOCALLY.md
+   - 3 stages: preprocessing (R: Seurat/Signac/ArchR) -> merged Seurat
+     object -> downstream (differential analysis, ChromBPNet ML, SCENIC+).
+   - Key handoff file everything depends on: merged_multiome.rds
+     (carries the cell-type annotations).
+
+2. Checked whether the public GEO data lets us skip preprocessing.
+   - GSE304399 (multiome): clean, matched RNA + ATAC *count matrices* only.
+   - GSE304196 (CUT&Tag) and GSE304349 (enhancer-AAV): fully covered.
+   - NOT deposited: annotated merged object + ATAC fragment files.
+   - Raw fastq ARE public (SRA / BioProject PRJNA1301245).
+   Conclusion:
+   - merged_multiome.rds: reproducible (must re-cluster + re-annotate;
+     not byte-identical). Can start from GEO count matrices.
+   - Per-cell-type fragment files: NOT derivable from count matrices ->
+     only reproducible by running Cell Ranger ARC from raw fastq.
+   - ChromBPNet (ML) branch therefore needs the full preprocessing run,
+     or the authors' fragment files.
+   -> Waiting to acquire the actual data.
+
+3. Started refactoring the scripts (they are heavily hard-coded).
+   Decision: de-hardcode now (config + sample sheet), and later add
+   Snakemake as a Python-friendly orchestration layer. NOT rewriting the
+   R preprocessing in Python (would be a reimplementation w/ different
+   results; the ML + SCENIC+ parts are already Python).
+   Did the safe, data-independent part today:
+   - pipeline/config.yaml   - all paths/refs/thresholds in one place
+   - pipeline/samples.csv    - 21 samples (id, path, condition, batch, best_pK)
+   - pipeline/R/pipeline_utils.R - config/sample-sheet loaders + helpers
+   - pipeline/R/create_object.R  - worked template (config-driven refactor)
+   - pipeline/README.md      - layout + status (filtering/merge/archr = TODO)
+   Validated (no data needed): config loads, sample sheet parses, helpers
+   resolve paths / gene-name fixes, best_pK matches original, scripts parse.
+   Original code/ left untouched as reference.
+
+NEXT
+- Acquire the data (GEO count matrices for now; raw fastq for fragments/ML).
+- Once data is available: refactor filtering.R / merge_sample_objects.R /
+  archr_peak_calling.R the same way, then verify against a real run.
+- Add Snakemake orchestration on top.

@@ -1,0 +1,153 @@
+project:
+  root: '.'
+  samples: pipeline/samples.smoke.csv
+  source_r: code/source.R
+genome:
+  species: mouse
+  mt_pattern: ^mt-
+assays:
+  peaks: peaks
+  rna: RNA
+  rna_raw: RNA_raw
+gene_name_fixes:
+  tdTomato-WPRE: tdTomato.WPRE
+cellranger_outs:
+  atac_fragments: outs/atac_fragments.tsv.gz
+  filtered_matrix: outs/filtered_feature_bc_matrix
+  cellbender_h5: outs/cellbended_gex_matrix_fpr001_seurat.h5
+barcode_metrics:
+- file: outs/per_barcode_metrics.csv
+  cell_col: is_cell
+- file: outs/singlecell.csv
+  cell_col: is__cell_barcode
+paths:
+  archr_peaks: smoke/archr_peaks_multiome.rds
+  feature_matrix: smoke/featurematrix_archr_clusterpeaks_multiome.rds
+  unmerged_obj: smoke/unmerged_obj_multiome.rds
+  unmerged_obj_cb_clean: smoke/unmerged_multiome_cb_clean.rds
+  unmerged_obj_clean: smoke/unmerged_obj_multiome_clean.rds
+  merged_obj: smoke/merged_multiome.rds
+archr:
+  threads: 5
+  genome: mm10
+  qc_dir: smoke/QualityControl
+  proj_tmp_dir: smoke/proj_archr
+  proj_out_dir: smoke/archrproj_multiome
+  copy_arrows: yes
+  min_tss: 1
+  min_frags: 300
+  add_tile_mat: yes
+  add_gene_score_mat: yes
+  lsi_iterations: 2
+  lsi_resolution: 0.2
+  lsi_sample_cells: 10000
+  lsi_n_start: 10
+  lsi_var_features: 25000
+  lsi_dims:
+  - 1
+  - 30
+  harmony_group_by: Sample
+  cluster_resolution: 1
+  group_by: Clusters
+  umap_n_neighbors: 30
+  umap_min_dist: 0.5
+  umap_metric: cosine
+  macs2_path: /Users/gorkemdurmaz/miniconda3/envs/macs2/bin/macs2
+  feature_matrix_process_n: 20000
+create_object:
+  min_ncount_peaks: 300
+  min_ncount_rna_raw: 200
+  top_features_cutoff: 5
+  pca_stdev_cutoff: 2
+  min_dims_pca: 2
+  min_dims_lsi: 3
+  wnn_resolutions:
+  - 0.3
+  - 0.2
+filtering:
+  cluster_var: seurat_clusters
+  outlier_iqr_mult: 3
+  outlier_metrics:
+    nCount_peaks: both
+    nCount_RNA_raw: both
+    nFeature_RNA_raw: both
+    percent.mt: upper
+    TSS.enrichment: lower
+    nucleosome_signal: upper
+  wnn_dims_pca:
+  - 1
+  - 15
+  wnn_dims_lsi:
+  - 2
+  - 15
+  wnn_resolutions:
+  - 0.3
+  - 0.2
+  sig_pc: 15
+  doublet_pN: 0.25
+  doublet_rate_slope: 0.0008
+  doublet_rate_intercept: 0.032
+  scdbl_nfeatures: 1000
+  manual_cluster_drop:
+    ALL_U_2: '11'
+    DEPL_3dpi_6: '8'
+    FT_28dpi_4: '5'
+  manual_cluster_keep:
+    FT_1dpi_4:
+    - '0'
+    - '1'
+    - '3'
+    FT_28dpi_4: '1'
+    FT_7dpi_4:
+    - '0'
+    - '1'
+    FT_U_4: '0'
+merge:
+  doublet_col: DF_doublet
+  doublet_keep: Singlet
+  sample_metadata_cols:
+  - experiment
+  - condition
+  - batch
+  top_features_cutoff: q75
+  wnn_dims_pca:
+  - 1
+  - 30
+  wnn_dims_lsi:
+  - 2
+  - 30
+  cluster_resolutions:
+  - 0.1
+  - 0.2
+  modality_resolution: 1.1
+  annotation:
+    cluster_col: wsnn_res.0.1
+    ident_col: cluster_ids
+    map:
+      '0': Oligodendrocytes
+      '1': Microglia
+      '2': Ependymal
+      '3': Neurons_V
+      '4': Macrophages
+      '5': Astrocytes
+      '6': Astrocytes
+      '7': Neurons_D
+      '8': Neurons_D
+      '9': OPCs
+      '10': Perivascular
+      '11': Neurons_D
+      '12': Endothelial
+      '13': Neurons_D
+      '14': Perivascular
+      '15': Neurons_D
+    levels:
+    - Neurons_V
+    - Neurons_D
+    - Astrocytes
+    - Ependymal
+    - OPCs
+    - Oligodendrocytes
+    - Microglia
+    - Macrophages
+    - Perivascular
+    - Endothelial

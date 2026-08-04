@@ -1,0 +1,56 @@
+.DS_Store
+~$*
+.claude/settings.local.json
+
+# ---- large inputs (downloaded, not ours to version) ----
+data/
+multiome_obj_clean_240326.rds
+
+# ---- pipeline outputs / intermediates ----
+smoke/
+logs/
+*.rds
+*.arrow
+
+# ---- ArchR working dirs & logs ----
+ArchRLogs/
+QualityControl/
+proj_archr/
+archrproj_multiome/
+# ArchR's temp arrows during createArrowFiles
+tmp/
+
+# ---- host-specific tool paths (each machine writes its own) ----
+# docker/ IS versioned -- it is the reproducibility artifact.
+pipeline/tools.local.env
+
+# ---- mm10 reference genome (downloaded from UCSC, not ours to version) ----
+# 830 MB gzipped / 2.6 GB unpacked. Re-fetch:
+#   curl -LO https://hgdownload.soe.ucsc.edu/goldenPath/mm10/bigZips/mm10.fa.gz
+# The rest of meta/ (chrom sizes, blacklist, motifs, splits) IS versioned.
+meta/mm10.fa
+meta/mm10.fa.gz
+meta/mm10.fa.fai
+meta/curl_mm10.log
+
+# ---- differential-analysis output (differential_analysis_injury.R) ----
+# 22 MB+ of FindMarkers tables; regenerate with:
+#   Rscript pipeline/R/differential_analysis_injury.R pipeline/config.yaml --only peaks
+markers/
+
+# ---- ChromBPNet inputs (prepare_ml_input.R output; ~94 GB) ----
+# Per-cell-type fragment BEDs. Regenerate with:
+#   Rscript pipeline/R/prepare_ml_input.R pipeline/config.yaml
+ML/
+
+# ---- snakemake state ----
+.snakemake/
+
+# ---- R session cruft ----
+.Rhistory
+.Rapp.history
+.RData
+Rplots.pdf
+
+# ---- sort scratch space (run_chrombpnet.sh bias-peaks) ----
+.sorttmp/

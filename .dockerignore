@@ -1,0 +1,32 @@
+# Large inputs — MOUNTED at runtime, never baked into the image.
+data/
+ML/
+markers/
+smoke/
+*.rds
+meta/mm10.fa
+meta/mm10.fa.gz
+meta/mm10.fa.fai
+meta/mm10.md5sum.txt
+meta/curl_mm10.log
+meta/unpack_mm10.log
+
+# Host-specific: names macs2/bedtools paths that do not exist in the container.
+# The script tolerates it now (it validates executability), but keep it out.
+pipeline/tools.local.env
+
+# Working state / caches
+logs/
+.snakemake/
+tmp/
+ArchRLogs/
+QualityControl/
+proj_archr/
+archrproj_multiome/
+.git/
+.DS_Store
+**/.DS_Store
+Rplots.pdf
+.Rhistory
+.Rapp.history
+.RData

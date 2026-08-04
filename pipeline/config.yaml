@@ -1,0 +1,233 @@
+# ============================================================================
+# Pipeline configuration
+# ----------------------------------------------------------------------------
+# Central place for paths, references, and thresholds that were previously
+# hard-coded inside the scripts in code/. Edit this file (and samples.csv)
+# instead of editing the scripts.
+#
+# All relative paths are resolved from `project.root`. Scripts are expected to
+# be run with the repo root as the working directory, e.g.:
+#   Rscript pipeline/R/create_object.R
+# ============================================================================
+
+project:
+  root: "."                       # working dir root (all relative paths hang off this)
+  samples: "pipeline/samples.csv" # the sample sheet (one row per sample)
+  source_r: "code/source.R"       # shared R preamble (libraries, mm10 annotation, JASPAR, palette)
+
+genome:
+  species: "mouse"                # mouse | human (drives mt_pattern etc.)
+  mt_pattern: "^mt-"              # mitochondrial gene prefix ("^mt-" mouse, "^MT-" human)
+
+# Assay names used across the object — single source of truth. create_object.R
+# builds these; every downstream step references them, so a rename happens here
+# once instead of in each script. (The published filtering.R referred to peak
+# assays "macs2_peaks"/"cellranger_peaks" that create_object.R never builds;
+# both really mean the single ATAC assay below.)
+assays:
+  peaks:   "peaks"      # ATAC ChromatinAssay
+  rna:     "RNA"        # ambient-corrected (cellbender) RNA
+  rna_raw: "RNA_raw"    # raw RNA
+
+# Transgenes / custom features whose names must be sanitised before Seurat sees
+# them (Seurat splits on "-", which breaks names like tdTomato-WPRE). Add any
+# reporter/transgene present in YOUR reference here as "raw name": "safe name".
+gene_name_fixes:
+  "tdTomato-WPRE": "tdTomato.WPRE"
+
+# Layout of the Cell Ranger ARC `outs/` folder inside each sample directory.
+# Each entry is appended to a sample's path (see samples.csv `path` column).
+cellranger_outs:
+  atac_fragments:  "outs/atac_fragments.tsv.gz"
+  filtered_matrix: "outs/filtered_feature_bc_matrix"
+  cellbender_h5:   "outs/cellbended_gex_matrix_fpr001_seurat.h5"
+
+# Valid-cell barcode source. Cell Ranger ARC and older Cell Ranger name this
+# file / cell-flag column differently, so list candidates in preference order;
+# per sample the first file that exists is used, keeping rows where cell_col == 1.
+barcode_metrics:
+  - file: "outs/per_barcode_metrics.csv"    # Cell Ranger ARC
+    cell_col: "is_cell"
+  - file: "outs/singlecell.csv"             # older Cell Ranger
+    cell_col: "is__cell_barcode"
+
+# Intermediate / output objects (relative to project.root).
+# These replace the literal filenames scattered across the R scripts.
+# differential_analysis_injury.R — per-cell-type injury DARs (Track A, step 2).
+# Produces the markers file the ChromBPNet DAR/interpretation branch consumes.
+dge:
+  merged_obj:      "multiome_obj_clean_240326.rds"
+  celltype_col:    "cluster_ids"
+  condition_col:   "condition"
+  baseline:        "U"                          # ident.2 in every comparison
+  timepoints:      ["1dpi", "3dpi", "7dpi", "28dpi"]
+  condition_levels: ["U", "1dpi", "3dpi", "7dpi", "28dpi"]
+  peaks_assay:     "peaks"
+  rna_assay:       "RNA"
+  min_pct:         0.05
+  rna_logfc_threshold: 0.32   # the published script sets this for RNA only
+  # final filter applied to both, matching the original
+  filter_p:        0.05
+  filter_abs_log2fc: 0.5
+  # loud warning when a comparison rests on fewer cells than this (not a skip)
+  warn_below_cells: 30
+  outdir:          "markers"
+  peaks_out:       "markers/markers_Uvsothers_peaks_all.rds"
+  rna_out:         "markers/markers_Uvsothers_rna_all.rds"
+
+# prepare_ml_input.R — per-cell-type fragment BEDs for ChromBPNet (Track A).
+# Independent of the 4-step preprocessing chain: it reads the already-annotated
+# merged object and the local fragment files, so it does NOT need ArchR.
+ml:
+  merged_obj:      "multiome_obj_clean_240326.rds"  # author's annotated object
+  assay:           "peaks"
+  celltype_col:    "cluster_ids"
+  celltype_outdir: "ML/celltype_fragments"
+  injury_outdir:   "ML/celltype_fragments_injury"
+  injury_col:      "cluster_ids_injury"   # precomputed on the object; verified before use
+  bias_group_col:  "batch"                # batch 1 = unsorted, all timepoints
+  bias_ident:      "1"
+  bias_suffix:     "_input_bias"
+  buffer_length:   256
+  # --- DAR BEDs for ChromBPNet interpretation (prepare_ml_dars.R) ----------
+  dars_markers:    "markers/markers_Uvsothers_peaks_all.rds"
+  dars_outdir:     "ML/celltype_dars"
+  dars_max_p:      0.05
+  dars_min_log2fc: 0.5      # positive only: regions opening after injury
+  dars_dedupe:     true     # collapse peaks recurring across timepoints
+
+paths:
+  archr_peaks:         "archr_peaks_multiome.rds"
+  feature_matrix:      "featurematrix_archr_clusterpeaks_multiome.rds"
+  unmerged_obj:          "unmerged_obj_multiome.rds"
+  unmerged_obj_cb_clean: "data/unmerged_multiome_cb_clean.rds"  # filtering.R checkpoint (post-QC, pre-doublet)
+  unmerged_obj_clean:    "unmerged_obj_multiome_clean.rds"
+  merged_obj:            "merged_multiome.rds"
+
+# ---- Per-step parameters --------------------------------------------------
+
+# archr_peak_calling.R — ArchR: arrow files, iterative LSI, clustering, MACS2
+# reproducible peak set, then per-sample count matrices over that peak set.
+# This runs FIRST; it produces paths.archr_peaks + paths.feature_matrix that
+# create_object.R consumes.
+archr:
+  threads:            5
+  genome:             "mm10"            # addArchRGenome
+  qc_dir:             "QualityControl"
+  proj_tmp_dir:       "proj_archr"      # initial ArchRProject outputDirectory
+  proj_out_dir:       "archrproj_multiome"  # saveArchRProject outputDirectory
+  copy_arrows:        true
+  # createArrowFiles
+  min_tss:            1                 # keep low; can filter up later
+  min_frags:          300
+  add_tile_mat:       true
+  add_gene_score_mat: true
+  # false -> an interrupted run resumes: arrow files a previous attempt finished
+  # are reused instead of rebuilt. ArchR only stamps Metadata/Completed on an
+  # arrow it moved out of tmp/ intact, and rebuilds any file missing that stamp,
+  # so a partial arrow is never silently adopted. true = always rebuild all.
+  force_arrows:       false
+  # addIterativeLSI
+  lsi_iterations:     2
+  lsi_resolution:     [0.2]             # clusterParams resolution
+  lsi_sample_cells:   10000
+  lsi_n_start:        10
+  lsi_var_features:   25000
+  lsi_dims:           [1, 30]
+  # addHarmony / addClusters / addUMAP
+  harmony_group_by:   "Sample"
+  cluster_resolution: 1
+  group_by:           "Clusters"        # grouping for coverages + peak calling
+  umap_n_neighbors:   30
+  umap_min_dist:      0.5
+  umap_metric:        "cosine"
+  # MACS2 executable for addReproduciblePeakSet. macs2 lives in its own conda env
+  # (python conflict with the R env), so point at it directly. null -> ArchR findMacs2().
+  macs2_path:         "/Users/gorkemdurmaz/miniconda3/envs/macs2/bin/macs2"
+  # FeatureMatrix (per-sample counts over the peak set)
+  feature_matrix_process_n: 20000
+
+create_object:
+  min_ncount_peaks:      300    # drop nuclei with fewer ATAC counts in peaks
+  min_ncount_rna_raw:    200    # drop nuclei with fewer raw RNA counts
+  top_features_cutoff:   5      # Signac FindTopFeatures(min.cutoff=)
+  pca_stdev_cutoff:      2      # keep PCA/LSI dims with stdev above this
+  # STRUCTURAL FLOORS, not tuning knobs. FindMultiModalNeighbors needs >= 2
+  # dimensions per modality; with 1 the embedding degrades from a matrix to a
+  # vector and L2Norm dies with "dim(X) must have a positive length". LSI drops
+  # component 1 (sequencing depth) and so indexes 2:sig_pc_lsi -- meaning
+  # sig_pc_lsi must reach 3 to yield 2 usable dims. See the header note in
+  # R/create_object.R. Leave these alone unless you know why you're changing them.
+  min_dims_pca:          2      # floor for sig_pc_pca (used as 1:sig_pc_pca)
+  min_dims_lsi:          3      # floor for sig_pc_lsi (used as 2:sig_pc_lsi)
+  wnn_resolutions:       [0.3, 0.2]   # FindClusters resolutions (applied in order)
+
+filtering:
+  cluster_var:           "seurat_clusters"  # metadata column defining groups for outlier detection
+  outlier_iqr_mult:      3      # nuclei beyond this many IQRs of their cluster are outliers
+  # Per-cluster QC outliers: metadata column -> tail direction (both|upper|lower).
+  # nCount_*/nFeature_* column names track the assay names under `assays:` above.
+  outlier_metrics:
+    nCount_peaks:        "both"    # ATAC counts in peaks
+    nCount_RNA_raw:      "both"    # total UMIs
+    nFeature_RNA_raw:    "both"    # genes detected
+    percent.mt:          "upper"   # mitochondrial %
+    TSS.enrichment:      "lower"   # TSS enrichment score
+    nucleosome_signal:   "upper"   # nucleosome signal
+  # WNN recompute after QC filtering (fixed dims, as in the paper's filtering.R)
+  wnn_dims_pca:          [1, 15]
+  wnn_dims_lsi:          [2, 15]
+  wnn_resolutions:       [0.3, 0.2]   # FindClusters resolutions, applied in order
+  # Doublet detection
+  sig_pc:                15       # PCs used for DoubletFinder / scDblFinder
+  doublet_pN:            0.25     # DoubletFinder pN
+  doublet_rate_slope:    0.0008   # 10x linear estimate: rate = (slope*nCells - intercept)/100
+  doublet_rate_intercept: 0.032
+  scdbl_nfeatures:       1000     # scDblFinder aggregated features
+  # Per-sample manual QC, keyed by sample_id (was positional [[18]]..[[21]] in the original).
+  manual_cluster_drop:            # subset(idents = ..., invert = TRUE) — drop low-quality clusters
+    ALL_U_2:     ["11"]
+    DEPL_3dpi_6: ["8"]
+    FT_28dpi_4:  ["5"]
+  manual_cluster_keep:            # subset(idents = ...) — keep only relevant clusters (drop cells from another experiment)
+    FT_1dpi_4:   ["0", "1", "3"]
+    FT_28dpi_4:  ["1"]
+    FT_7dpi_4:   ["0", "1"]
+    FT_U_4:      ["0"]
+
+merge:
+  doublet_col:           "DF_doublet"   # RNA-doublet call from filtering.R
+  doublet_keep:          "Singlet"      # value to keep (drops "Doublet")
+  # Per-sample metadata copied onto every cell from samples.csv, keyed by the
+  # cell's `sample`. Replaces the original strsplit(sample, "_") on the name.
+  sample_metadata_cols:  ["experiment", "condition", "batch"]
+  top_features_cutoff:   "q75"          # Signac FindTopFeatures(min.cutoff=) on merged peaks
+  wnn_dims_pca:          [1, 30]
+  wnn_dims_lsi:          [2, 30]
+  cluster_resolutions:   [0.1, 0.2]     # WNN FindClusters resolutions -> wsnn_res.<r> columns
+  modality_resolution:   1.1            # per-modality (RNA-only / ATAC-only) FindClusters resolution
+  # Cluster -> cell-type annotation. DATA-SPECIFIC: these cluster numbers and the
+  # map are valid only for THIS dataset/resolution and MUST be re-derived for your
+  # own data. `cluster_col` must be one of the cluster_resolutions computed above.
+  annotation:
+    cluster_col: "wsnn_res.0.1"
+    ident_col:   "cluster_ids"          # metadata column the final annotation is stored in
+    map:
+      "0":  "Oligodendrocytes"
+      "1":  "Microglia"
+      "2":  "Ependymal"
+      "3":  "Neurons_V"
+      "4":  "Macrophages"
+      "5":  "Astrocytes"
+      "6":  "Astrocytes"
+      "7":  "Neurons_D"
+      "8":  "Neurons_D"
+      "9":  "OPCs"
+      "10": "Perivascular"
+      "11": "Neurons_D"
+      "12": "Endothelial"
+      "13": "Neurons_D"
+      "14": "Perivascular"
+      "15": "Neurons_D"
+    levels: ["Neurons_V", "Neurons_D", "Astrocytes", "Ependymal", "OPCs",
+             "Oligodendrocytes", "Microglia", "Macrophages", "Perivascular", "Endothelial"]
