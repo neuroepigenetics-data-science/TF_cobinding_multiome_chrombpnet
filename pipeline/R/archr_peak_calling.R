@@ -26,7 +26,10 @@
 #   determined by the fragments, valid barcodes, and min_tss/min_frags — all
 #   unchanged across a restart. Set archr.force_arrows: true to force rebuilds.
 #
-# Requires ArchR + MACS2 (see RUNNING_LOCALLY.md — ArchR is the Tier-2 install).
+# Requires ArchR + MACS2. ArchR is NOT on the ChromBPNet critical path -- the
+# peak set it builds is already baked into the author's annotated object, and
+# run_chrombpnet.sh re-calls peaks with MACS2 regardless. Install it only for
+# Track B (reproduction, or processing our own data).
 #
 # Run from the repo root:
 #   Rscript pipeline/R/archr_peak_calling.R [path/to/config.yaml]

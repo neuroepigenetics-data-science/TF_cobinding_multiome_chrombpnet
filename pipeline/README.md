@@ -137,7 +137,7 @@ they were adopted into Snakemake's provenance with `--touch`.
 > ⚠️ **Everything in this file is Track B (reproducibility / our own data).**
 > **None of it is on the critical path to ChromBPNet.** If the goal is the ML
 > branch, go to `R/prepare_ml_input.R` (below) and skip this chain entirely —
-> see `RUNNING_LOCALLY.md` § "How to proceed". On 2026-07-29 a full 21-sample
+> see the root `README.md` § "Running it". On 2026-07-29 a full 21-sample
 > ArchR run was started off this section by mistake and abandoned an hour in;
 > it advances reproduction, not the science.
 
@@ -301,7 +301,7 @@ paper). Under Bonferroni, OPCs keeps 0.8% of its regions, Endothelial 1.8%,
 Perivascular and Macrophages 0% — while Ependymal/Microglia/Astrocytes/
 Oligodendrocytes keep 49–82%. Note OPCs passes the peak-retention check (89%)
 and fails this one, so the two checks are independent. Full table and the
-options in `RUNNING_LOCALLY.md` § "DAR significance threshold".
+options in the root `README.md` § "Data caveats".
 
 **Track B — reproduction, below.**
 

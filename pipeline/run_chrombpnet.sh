@@ -60,7 +60,7 @@
 #    never saw that chromosome. Kept (published behaviour), but logged per cell
 #    type so the number is visible. Set DROP_UNSPLIT_CHROMS=1 to exclude them.
 #  * DARs use the published raw-p threshold (p_val<0.05, no multiple-testing
-#    correction). See RUNNING_LOCALLY.md "DAR significance threshold" -- under
+#    correction). See README.md "Data caveats" -- under
 #    Bonferroni several cell types lose >95% of their regions.
 #
 # ---------------------------------------------------------------------------
