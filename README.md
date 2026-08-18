@@ -64,7 +64,6 @@ pipeline/                     our corrected, config-driven implementation
 code/                         the authors' published scripts (reference, unmodified)
 docker/                       reproducibility image (zamboni-tracka:1.0, amd64)
 meta/                         chrom sizes, blacklist, motif DB, chromosome folds
-RUNNING_LOCALLY.md            full walkthrough, environments, data caveats
 ```
 
 Not in the repo (see `.gitignore`): the merged Seurat object (7.2 GB), raw
@@ -114,7 +113,7 @@ docker build -f docker/Dockerfile -t zamboni-tracka:1.0 .
 
 Requirements: R 4.x with Seurat 5.3 / Signac 1.14, MACS2, bedtools, and the
 `chrombpnet` conda environment. Docker Desktop needs ≥16 GB for the container —
-the slimmed object alone is 11.5 GB. See `RUNNING_LOCALLY.md` § 1.
+the slimmed object alone is 11.5 GB. See `docker/README.md`.
 
 ---
 
@@ -152,13 +151,29 @@ testing* — do they survive correction across the ~466,834 peaks tested?
   few for seqlet clustering). Biologically expected: macrophages infiltrate after
   injury, so its uninjured group is only 22 cells.
 
-**Open question — the DAR significance threshold.** Regions are filtered on raw
-`p_val` with no multiple-testing correction. This is faithful to the paper, and
-is the default here, but the same published repository uses adjusted p-values for
-its cell-type marker analysis and raw p-values only for the injury analysis. Note
-also that the DGE step saves results *already filtered*, so a BH-FDR middle ground
-cannot be recomputed from the saved files without re-running. Full discussion and
-the options in `RUNNING_LOCALLY.md` § "DAR significance threshold".
+**Open question — the DAR significance threshold.** The region set fed to
+ChromBPNet is filtered on raw `p_val` with no multiple-testing correction
+(`code/machine_learning/prepare_ml_input.R:53`, on a table already filtered the
+same way at `code/explore/differential_analysis.R:134,137`). ~466,834 peaks are
+tested per contrast. This is faithful to the paper and is the default here.
+
+Note that Seurat computes a Bonferroni `p_val_adj` inside every `FindMarkers`
+call, so the corrected values are present in all of the authors' tables — the
+question is only what each downstream filter *uses*, and the published repository
+is not consistent about it. Adjusted p is used for the cell-type marker analysis
+(`differential_analysis.R:46,49`) and for the shared-glial-gene figure of the
+injury analysis (`explore_injury_differential_analysis.R:192`); raw p is used for
+the DAR set that feeds the deep-learning model. The `avg_log2FC > 0.5` gate that
+accompanies it is an effect-size filter, not error control, and it is weakest
+exactly where it is needed most — in a thin contrast a large fold-change is *more*
+likely by chance, because the estimate is unstable.
+
+A BH-FDR middle ground cannot be recovered from the saved files: the DGE step
+applies its filter before `saveRDS`, and BH is rank-based over the *complete* set
+of p-values, so `p.adjust` on a pre-filtered table passes essentially everything.
+Recovering it needs a ~1 h re-run of the DGE with filtering disabled. Bonferroni,
+by contrast, stays valid after subsetting, which is why it could be used to
+measure the problem in the table above.
 
 The chromosome folds cover chr1–19 only, so ~1–2% of regions (on chrX) are scored
 by a model that never trained on that chromosome. Kept by default and logged per
