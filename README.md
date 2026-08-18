@@ -50,6 +50,58 @@ uniform 500 bp, zero duplicates, every window verified edge-safe for ChromBPNet'
 
 ---
 
+## Where the input data comes from
+
+Neither of the two files this pipeline depends on — the annotated merged Seurat
+object and the raw ATAC fragments — is on GEO. Both came directly from the
+corresponding author (object 2026-07-17, all 21 `atac_fragments.tsv.gz`
+2026-07-21, each md5-verified against the hashes stored inside her own object,
+21/21 identical). This section records what a fresh public-data start would face.
+
+The public data is three GEO sub-series. The HPC paths in `code/`
+(`/cfs/klemming/...`, `/proj/...`) are the authors' private copies, not URLs.
+
+| accession | assay | deposited | lets you skip |
+|---|---|---|---|
+| `GSE304399` | multiome (main) | RNA count matrix and ATAC **peak** count matrix, `.mtx` + barcodes + features. The RNA and ATAC barcode files are identical, so it is a matched, already-filtered cell set. | fastq → Cell Ranger → cellbender → QC/doublet filtering → peak calling |
+| `GSE304196` | CUT&Tag | `cutandtag_merged_fragments_sorted.tsv.gz` | all of `cutandtag_preprocess.sh` — this file *is* its output |
+| `GSE304349` | enhancer-AAV | injured + uninjured `.mtx` + barcodes + features | Cell Ranger for the AAV assay (scripts read a raw `.h5`; minor adaptation) |
+
+**Two things GEO does not give you, and the second is fatal for this repo:**
+
+1. **No cell-type annotations, and no merged object.** The barcode files are
+   plain barcode lists — no `cluster_ids` column, no metadata file, no `.rds` or
+   `.h5ad`. Every downstream script keys off those labels, so you must build a
+   Signac object from the `.mtx`, re-cluster, and **manually re-annotate cell
+   types**; the hard-coded cluster→celltype map in `merge_sample_objects.R` is
+   tied to the authors' cluster numbering and will not match a fresh clustering.
+   Whether sample/timepoint is even recoverable needs checking — likely only from
+   a barcode prefix.
+2. **No fragment files, so the ChromBPNet branch cannot be reproduced from
+   public data at all.** `SplitFragments` partitions raw `atac_fragments.tsv.gz`
+   by cell type. GEO ships only a peak × cell count matrix, and that aggregation
+   is lossy — per-read coordinates are gone, so it **cannot** be converted back
+   into fragments. No `atac_fragments.tsv.gz` is deposited at series or GSM level.
+
+**Both are still reproducible from raw reads**, which are public via SRA under
+BioProject `PRJNA1301245`:
+
+- *The merged object* — reproducible functionally, not byte-identically. Fastest
+  route is to build from the GEO matrices (already the clean, matched cell set)
+  and re-run normalize → PCA/LSI → WNN → clustering → manual annotation. LSI
+  subsampling, UMAP, clustering, DoubletFinder and Harmony are all stochastic;
+  the scripts set `set.seed(1234)` but tool versions still shift results.
+- *The fragments* — **only** from raw fastq: download from SRA, run Cell Ranger
+  ARC on all 21 samples, rebuild and annotate the object, then `prepare_ml_input.R`.
+  That reproduces everything including the ML branch; it is just the full,
+  compute-heavy preprocessing run (Cell Ranger ARC ×21, cellbender on GPU).
+
+If you want to *reproduce the result* rather than *re-run the pipeline*, ask the
+corresponding author for the annotated object and the fragments. That is what we
+did, and it is far cheaper than Cell Ranger ARC on 21 samples.
+
+---
+
 ## Layout
 
 ```
