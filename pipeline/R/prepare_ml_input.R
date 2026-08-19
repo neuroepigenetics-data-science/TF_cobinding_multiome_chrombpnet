@@ -178,7 +178,12 @@ ensure_empty_dir <- function(d) {
 ensure_empty_dir(m$celltype_outdir)
 if (injury_ok) ensure_empty_dir(m$injury_outdir)
 
-# --- 1. bias-model input: batch 1 (unsorted, all timepoints) ---------------
+# --- 1. bias-model input: batch 1 (unsorted; U/1dpi/7dpi) ------------------
+# batch 1 on the author's object is ALL_1dpi_1 + ALL_7dpi_1 + ALL_U_1 -- 9,179
+# cells, all unsorted (ALL), covering three of the five timepoints. Timepoint
+# coverage does not matter here (Tn5 bias is not a biological signal) but the
+# sorting does: DEPL/FT are cell-type enriched, so training the bias model on
+# them would fold cell-type biology into the term ChromBPNet later subtracts.
 say("SplitFragments -> bias input (", m$bias_group_col, " == ", m$bias_ident, ")")
 SplitFragments(
   multiome,

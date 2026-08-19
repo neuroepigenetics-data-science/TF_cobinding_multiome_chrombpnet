@@ -85,7 +85,12 @@ ml:
   celltype_outdir: "ML/celltype_fragments"
   injury_outdir:   "ML/celltype_fragments_injury"
   injury_col:      "cluster_ids_injury"   # precomputed on the object; verified before use
-  bias_group_col:  "batch"                # batch 1 = unsorted, all timepoints
+  # Tn5 bias-model input. batch 1 on the author's object is 3 unsorted (ALL)
+  # samples -- ALL_1dpi_1, ALL_7dpi_1, ALL_U_1 (9,179 cells; U/1dpi/7dpi only,
+  # NOT all timepoints). Unsorted on purpose: DEPL/FT are enriched for
+  # particular cell types, and that biology must not leak into a model that
+  # is supposed to capture the enzyme's sequence preference alone.
+  bias_group_col:  "batch"
   bias_ident:      "1"
   bias_suffix:     "_input_bias"
   buffer_length:   256
