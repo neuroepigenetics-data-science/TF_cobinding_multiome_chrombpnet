@@ -48,6 +48,50 @@ Every per-sample input for the whole chain is under `data/<SAMPLE>/outs/`:
 `filtered_feature_bc_matrix/{matrix,barcodes,features}`. The merged annotated
 object `multiome_obj_clean_240326.rds` (Zamboni's) is at the repo root.
 
+### The 21 samples — what `experiment` means
+
+`experiment` in `samples.csv` is the **nuclei isolation strategy**, not a
+condition. The paper never spells this out in the code, so it is recorded here
+(source: Zamboni et al., Extended Data Fig. 1a and Methods "Tissue processing").
+The `sample_type` column carries the same information in readable form.
+
+| `experiment` | `sample_type` | what it is | why |
+|---|---|---|---|
+| `ALL` | `unsorted` | whole tissue, no sorting | the unbiased cell census |
+| `DEPL` | `NEUN-SOX10-depleted` | NEUN- SOX10- flow-sorted | removes the most abundant cells (neurons, oligodendroglia) to enrich astrocytes and immune cells |
+| `FT` | `Foxj1-tdTomato-sorted` | Foxj1-tdTomato reporter line | enriches **ependymal** cells |
+
+This is why Ependymal has by far the largest DAR set — 4 of the 21 samples were
+deliberately sorted for it.
+
+**Every sample is a pool of animals, never one mouse.** Wild-type preps (`ALL`,
+`DEPL`) pooled 2 animals, one per sex; `FT` pooled 4 cords, two per sex. Total
+across the study is roughly 50-60 mice; the paper gives no exact figure. The
+object's `sex` column confirms it — all 21 samples contain both F and M cells.
+Consequence for the DGE: `FindMarkers` treats **cells** as replicates, not
+animals, so the comparisons are pseudo-replicated. See § "Known weakness".
+
+**The design is not balanced.** Counting samples:
+
+| condition | ALL | DEPL | FT |
+|---|---|---|---|
+| U | 3 | 1 | 1 |
+| 1dpi | 3 | 1 | 1 |
+| 3dpi | 1 | 1 | **0** |
+| 7dpi | 3 | 1 | 1 |
+| 28dpi | 2 | 1 | 1 |
+
+**3dpi has no `FT` sample**, the only timepoint missing one. Since `FT` is the
+ependymal-enriched sort, the Ependymal 3dpi-vs-U contrast compares cells that
+arrived through a different isolation route than its own baseline — a
+composition difference on top of the biology, and `FindMarkers` is called
+without `latent.vars`, so nothing adjusts for it. Worth checking how much the
+3dpi contrast contributes to the Ependymal DAR set before leaning on its motifs.
+
+`batch` (1-6) always equals the sample-ID suffix; verified cell-by-cell against
+the author's object 2026-08-19. Batch 1 is the Tn5 bias-model input: 3 unsorted
+samples (`ALL_1dpi_1`, `ALL_7dpi_1`, `ALL_U_1`), 9,179 cells, U/1dpi/7dpi only.
+
 ### Environment (conda env `zamboni-r`; run `conda run -n zamboni-r Rscript ...`)
 
 | Package | State |
